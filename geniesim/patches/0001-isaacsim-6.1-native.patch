@@ -1,0 +1,126 @@
+diff --git a/source/geniesim_benchmark/src/geniesim_benchmark/app/geniesim.exp.kit b/source/geniesim_benchmark/src/geniesim_benchmark/app/geniesim.exp.kit
+index 35807d3..f2e4297 100644
+--- a/source/geniesim_benchmark/src/geniesim_benchmark/app/geniesim.exp.kit
++++ b/source/geniesim_benchmark/src/geniesim_benchmark/app/geniesim.exp.kit
+@@ -44,8 +44,10 @@ keywords = ["experience", "app", "usd", "geniesim"]
+ "omni.syntheticdata" = {}
+ "omni.rtx.settings.core" = {}
+ "omni.warp.core" = {}
+-"omni.pip.compute" = {}
+-"omni.isaac.core_archive" = {}
++# [isaacsim-6.1 port] not shipped in 6.1 (pip-archive ext folded into pip deps)
++# "omni.pip.compute" = {}
++# [isaacsim-6.1 port] not shipped in 6.1 (pip-archive ext folded into pip deps)
++# "omni.isaac.core_archive" = {}
+ "omni.hydra.engine.stats" = {}
+ "omni.kit.window.stats" = {}
+ "semantics.schema.editor" = {}
+diff --git a/source/geniesim_benchmark/src/geniesim_benchmark/benchmark/subscene_override.py b/source/geniesim_benchmark/src/geniesim_benchmark/benchmark/subscene_override.py
+index e25a343..2c54aa5 100644
+--- a/source/geniesim_benchmark/src/geniesim_benchmark/benchmark/subscene_override.py
++++ b/source/geniesim_benchmark/src/geniesim_benchmark/benchmark/subscene_override.py
+@@ -3,6 +3,48 @@
+ # License: Mozilla Public License Version 2.0
+ 
+ import os
++import tempfile
++
++# Pre-generated llm_task/<task>/<i>/scene.usda files reference assets by the docker mount
++# point of geniesim_assets.
++_DOCKER_ASSETS_ROOT = "/geniesim_assets"
++
++
++def _local_assets_root():
++    root = os.environ.get("GENIESIM_ASSETS_PATH")
++    if root:
++        return root
++    try:
++        from geniesim_assets import ASSETS_PATH
++
++        return str(ASSETS_PATH)
++    except ImportError:
++        return None
++
++
++def _localize_asset_refs(usd_path, sub_task_name, instance_id):
++    """[isaacsim-6.1 port] Outside the docker image /geniesim_assets does not exist, so the
++    workspace USD loads without its table and objects. Point the references at the local
++    geniesim_assets checkout via a rewritten copy; no-op when the docker path exists."""
++    if os.path.isdir(_DOCKER_ASSETS_ROOT) or not os.path.isfile(usd_path):
++        return usd_path
++    local_root = _local_assets_root()
++    if not local_root or os.path.normpath(local_root) == _DOCKER_ASSETS_ROOT:
++        return usd_path
++    with open(usd_path, "r", encoding="utf-8") as f:
++        text = f.read()
++    needle = "@" + _DOCKER_ASSETS_ROOT + "/"
++    if needle not in text:
++        return usd_path
++    cache_root = os.environ.get("GENIESIM_KIT_RUNTIME_DIR") or tempfile.gettempdir()
++    out_path = os.path.join(cache_root, "localized_usd", sub_task_name, str(instance_id), "scene.usda")
++    if not (os.path.isfile(out_path) and os.path.getmtime(out_path) >= os.path.getmtime(usd_path)):
++        os.makedirs(os.path.dirname(out_path), exist_ok=True)
++        tmp_path = out_path + f".tmp{os.getpid()}"
++        with open(tmp_path, "w", encoding="utf-8") as f:
++            f.write(text.replace(needle, "@" + local_root.rstrip("/") + "/"))
++        os.replace(tmp_path, out_path)
++    return out_path
+ 
+ 
+ def resolve_sub_usd_path(scene_cfg, benchmark_conf_path, sub_task_name, instance_id):
+@@ -11,12 +53,13 @@ def resolve_sub_usd_path(scene_cfg, benchmark_conf_path, sub_task_name, instance
+ 
+     override_root = scene_cfg.get("sub_usd_override_root", "")
+     if override_root:
+-        return os.path.join(override_root, str(instance_id), "scene.usda")
+-
+-    return os.path.join(
+-        benchmark_conf_path,
+-        "llm_task",
+-        sub_task_name,
+-        str(instance_id),
+-        "scene.usda",
+-    )
++        path = os.path.join(override_root, str(instance_id), "scene.usda")
++    else:
++        path = os.path.join(
++            benchmark_conf_path,
++            "llm_task",
++            sub_task_name,
++            str(instance_id),
++            "scene.usda",
++        )
++    return _localize_asset_refs(path, sub_task_name, instance_id)
+diff --git a/source/geniesim_benchmark/src/geniesim_benchmark/plugins/output_system/local_recorder.py b/source/geniesim_benchmark/src/geniesim_benchmark/plugins/output_system/local_recorder.py
+index 3525e2b..5e2a9aa 100644
+--- a/source/geniesim_benchmark/src/geniesim_benchmark/plugins/output_system/local_recorder.py
++++ b/source/geniesim_benchmark/src/geniesim_benchmark/plugins/output_system/local_recorder.py
+@@ -142,8 +142,10 @@ class _CameraEncoder:
+                 str(fps),
+                 "-i",
+                 "-",
+-                "-vsync",
+-                "0",
++                # [isaacsim-6.1 port] `-vsync 0` was removed in ffmpeg 7+ (conda-forge ships 9.x);
++                # `-fps_mode passthrough` is the same setting and exists since ffmpeg 5.1.
++                "-fps_mode",
++                "passthrough",
+                 "-c:v",
+                 "libvpx-vp9",
+                 "-deadline",
+diff --git a/source/geniesim_benchmark/src/geniesim_benchmark/utils/comm/websocket_client.py b/source/geniesim_benchmark/src/geniesim_benchmark/utils/comm/websocket_client.py
+index 78f4283..97b96f8 100644
+--- a/source/geniesim_benchmark/src/geniesim_benchmark/utils/comm/websocket_client.py
++++ b/source/geniesim_benchmark/src/geniesim_benchmark/utils/comm/websocket_client.py
+@@ -27,6 +27,11 @@ def ws_connect_compat(uri: str, **kwargs: Any) -> "websockets.sync.client.Client
+         params = {}
+     if params and not any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
+         kwargs = {k: v for k, v in kwargs.items() if k in params}
++    elif params:
++        # [isaacsim-6.1 port] websockets 14.x (isaacsim-kernel pins <15) has **kwargs but
++        # forwards them to socket.create_connection, which rejects ping_interval/ping_timeout;
++        # the sync client only gained keepalive in 15.0. Drop keys it cannot take.
++        kwargs = {k: v for k, v in kwargs.items() if k in params or k not in ("ping_interval", "ping_timeout")}
+     return websockets.sync.client.connect(uri, **kwargs)
+ 
+ 

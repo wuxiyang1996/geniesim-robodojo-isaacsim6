@@ -1,0 +1,91 @@
+diff --git a/env/environment/base_env.py b/env/environment/base_env.py
+index bcde808..02dcf95 100644
+--- a/env/environment/base_env.py
++++ b/env/environment/base_env.py
+@@ -7,7 +7,8 @@ from isaaclab.scene import InteractiveSceneCfg
+ from isaaclab_tasks.utils import parse_env_cfg  # this need dynamic import
+ from isaacsim.core.utils.stage import get_current_stage
+ from omegaconf import DictConfig, OmegaConf
+-from omni.physx import acquire_physx_interface
++# [isaacsim-6.1 port] omni.physx no longer exports acquire_physx_interface; get_physx_interface exists in 5.x and 6.x
++from omni.physx import get_physx_interface
+ 
+ from env.environment.isaac.isaac_rl_env import IsaacRLEnv
+ from env.seeding import seed_everywhere
+@@ -193,7 +194,7 @@ class BaseEnv(gym.Env):
+         This function will be called after simulation context is created
+         """
+         # enable cpu garment and deformable
+-        self.physics_interface = acquire_physx_interface()
++        self.physics_interface = get_physx_interface()
+         self.physics_interface.overwrite_gpu_setting(1)
+ 
+         # expose physics context
+diff --git a/env/scene_manager/objects/_isaacsim_compat.py b/env/scene_manager/objects/_isaacsim_compat.py
+new file mode 100644
+index 0000000..7a922ee
+--- /dev/null
++++ b/env/scene_manager/objects/_isaacsim_compat.py
+@@ -0,0 +1,23 @@
++"""[isaacsim-6.1 port] Helpers removed from Isaac Sim 6.x that RoboDojo still uses.
++
++On Isaac Sim 5.x the originals are used unchanged.
++"""
++
++try:
++    from isaacsim.replicator.behavior.utils.scene_utils import create_mdl_material
++except ImportError:  # Isaac Sim >= 6.0 dropped it from isaacsim.replicator.behavior
++    import omni.kit.commands
++    import omni.usd
++    from pxr import Sdf, UsdShade
++
++    def create_mdl_material(mtl_url: str, mtl_name: str, mtl_path: str) -> UsdShade.Material:
++        """Same as isaacsim.replicator.behavior.utils.scene_utils.create_mdl_material in Isaac Sim 5.1."""
++        omni.kit.commands.execute("CreateMdlMaterialPrim", mtl_url=mtl_url, mtl_name=mtl_name, mtl_path=mtl_path)
++        stage = omni.usd.get_context().get_stage()
++        mtl_prim = stage.GetPrimAtPath(mtl_path)
++        shader = UsdShade.Shader(omni.usd.get_shader_from_material(mtl_prim, get_prim=True))
++        shader.CreateInput("diffuse_texture", Sdf.ValueTypeNames.Asset)
++        shader.CreateInput("project_uvw", Sdf.ValueTypeNames.Bool)
++        shader.CreateInput("texture_scale", Sdf.ValueTypeNames.Float2)
++        shader.CreateInput("texture_rotate", Sdf.ValueTypeNames.Float)
++        return UsdShade.Material(mtl_prim)
+diff --git a/env/scene_manager/objects/fluid.py b/env/scene_manager/objects/fluid.py
+index 4d2aa3c..2794fdb 100644
+--- a/env/scene_manager/objects/fluid.py
++++ b/env/scene_manager/objects/fluid.py
+@@ -4,7 +4,7 @@ import carb
+ from isaacsim.core.utils.prims import delete_prim, is_prim_path_valid
+ from isaacsim.core.utils.stage import add_reference_to_stage, get_current_stage
+ from isaacsim.core.utils.string import find_unique_string_name
+-from isaacsim.replicator.behavior.utils.scene_utils import create_mdl_material
++from env.scene_manager.objects._isaacsim_compat import create_mdl_material  # [isaacsim-6.1 port]
+ import numpy as np
+ from omegaconf import DictConfig, ListConfig
+ import omni.kit.commands
+diff --git a/env/scene_manager/objects/ground.py b/env/scene_manager/objects/ground.py
+index 5a7d81b..cf212fc 100644
+--- a/env/scene_manager/objects/ground.py
++++ b/env/scene_manager/objects/ground.py
+@@ -14,7 +14,7 @@ from isaacsim.core.utils.prims import (
+ )
+ from isaacsim.core.utils.stage import get_current_stage
+ from isaacsim.core.utils.string import find_unique_string_name
+-from isaacsim.replicator.behavior.utils.scene_utils import create_mdl_material
++from env.scene_manager.objects._isaacsim_compat import create_mdl_material  # [isaacsim-6.1 port]
+ import numpy as np
+ from omegaconf import DictConfig
+ import omni.kit.commands
+diff --git a/env/scene_manager/objects/table.py b/env/scene_manager/objects/table.py
+index 8ba4c70..d60bba7 100644
+--- a/env/scene_manager/objects/table.py
++++ b/env/scene_manager/objects/table.py
+@@ -14,7 +14,7 @@ from isaacsim.core.utils.prims import (
+ )
+ import isaacsim.core.utils.stage as stage_utils
+ from isaacsim.core.utils.string import find_unique_string_name
+-from isaacsim.replicator.behavior.utils.scene_utils import create_mdl_material
++from env.scene_manager.objects._isaacsim_compat import create_mdl_material  # [isaacsim-6.1 port]
+ import numpy as np
+ import omni.kit.commands
+ from omni.physx.scripts import physicsUtils
