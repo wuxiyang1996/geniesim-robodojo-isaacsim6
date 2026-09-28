@@ -45,6 +45,54 @@ WORKDIR=$HOME/robodojo_work bash robodojo/install.sh
 WORKDIR=$HOME/robodojo_work bash robodojo/run.sh                        # demo_policy smoke test
 ```
 
+## Symptoms this repo fixes
+
+Error messages we hit, verbatim, and where the fix lives. If you landed here by searching one of
+them, the linked README explains the change.
+
+**Isaac Sim 5.1 on NVIDIA R590/R595 drivers** (the reason to move to 6.1; no fix within 5.1).
+Crash right after `app ready`, headless or not, even with an empty stage:
+```
+[Fatal] [carb.crashreporter-breakpad.plugin] 001: librtx.scenedb.plugin.so!void std::vector<std::tuple<char const*, float, float, unsigned int, unsigned int, unsigned int>, ...
+[Fatal] [carb.crashreporter-breakpad.plugin] 004: librtx.scenedb.plugin.so!carbOnPluginStartup+0x3b4de (??:?)
+Segmentation fault (core dumped)
+```
+
+**Genie Sim benchmark on Isaac Sim 6.1** → [`geniesim/`](geniesim/README.md#what-we-changed)
+```
+ModuleNotFoundError: No module named 'rclpy'
+RuntimeError: rclpy still not available
+RMW was not loaded
+ModuleNotFoundError: No module named 'numba'
+isaacsim-core 6.1.0.0 requires llvmlite==0.46.0, but you have llvmlite 0.49.0 which is incompatible.
+FileNotFoundError: [Errno 2] No such file or directory: 'ffmpeg'
+Unhandled exception in episode: create_connection() got an unexpected keyword argument 'ping_interval'
+Unrecognized option 'vsync'.
+[local_recorder] ffmpeg pipe broken for head
+[local_recorder] stopped episode 0 → ... (0 frames across 3 cameras, ...)
+```
+Also silent: the table and objects are missing from the scene (robot moves in an empty room) because
+`llm_task/*/scene.usda` reference `@/geniesim_assets/...`, the Docker mount point.
+
+**RoboDojo (Isaac Lab 2.3) on Isaac Sim 6.1** → [`robodojo/`](robodojo/README.md#what-we-changed)
+```
+[Error] [omni.ext.plugin] [ext: isaacsim.asset.importer.urdf-2.4.31] failed to load native plugin
+RuntimeError: Failed to acquire interface: isaacsim::asset::importer::urdf::Urdf (pluginName: nullptr)
+ModuleNotFoundError: No module named 'omni.physics.tensors.impl'
+ImportError: cannot import name 'acquire_physx_interface' from 'omni.physx'
+ImportError: cannot import name 'create_mdl_material' from 'isaacsim.replicator.behavior.utils.scene_utils'
+AttributeError: module 'pxr.PhysxSchema' has no attribute 'PhysxDeformableBodyAPI'
+ModuleNotFoundError: No module named 'omegaconf'
+PermissionError: [Errno 13] Permission denied: '/tmp/isaaclab/logs/isaaclab_....log'
+[Error] [omni.rtx] VkResult: ERROR_OUT_OF_DEVICE_MEMORY      (simulator + pi0.5 on one 16 GB GPU)
+```
+
+**Isaac Sim 6.1 on glibc < 2.35 (RHEL/Rocky 9)** → [`rhel9/`](rhel9/README.md)
+```
+Unable to bootstrap inner kit kernel: /lib64/libstdc++.so.6: version `GLIBCXX_3.4.30' not found
+Could not load the dynamic library from .../omni.usd.libs-.../bin/libusd_ts.so. Error: /lib64/libm.so.6: version `GLIBC_2.35' not found
+```
+
 ## Layout
 
 ```
